@@ -1,0 +1,4 @@
+smbus2
+i2c-tools
+Mock-GPIO
+Rpi-GPIO
