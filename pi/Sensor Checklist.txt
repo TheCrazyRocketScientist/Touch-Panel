@@ -1,0 +1,48 @@
+General Steps to initialize the ADXL345 acclerometer(s).
+This setup only detects single taps, double tap detection is disabled.
+Activity detection is also disabled.
+Free-Fall is disabled, this might be enabled to allow for detecting if panel is at risk of damage, this is reserved for future work.
+------------------------------------------------------
+Initial Steps: [Done]
+0.)Read Device ID at address 0x00 to check for device health
+1.)Set accelerometer in measurement mode by setting POWER_CTL register's MEASURE bit to 1, everything else to 0. 
+2.)Configure Interrupts, using INT_ENABLE, disable Double Tap/ACT/INTACT/FF interrupts, everything else remains 1. 
+3.)Configure the DATA_FORMAT register, set FULL_RES to 1, Set range to 2G, Set Justify to 0 for sanity check, 
+   Set INT_INVERT according to wiring diagram, should be set to active high but is subject to change.
+4.)Bypass FIFO using FIFO_CTL register 
+5.)Set INT_MAP register to desired INT Pins, consult wiring diagram. 
+------------------------------------------------------
+Disabling ACT/INACT detection: [Done]
+1.)Disable THRESH_ACT by setting all bits to 0, verify if activity interrupt is disabled, to avoid undesireable behaviour.
+2.)Disable THRESH_INACT by setting all bits to 0, verify if inactivity interrupt is disabled, to avoid undesireable behaviour.
+3.)Disabling all bits in the register ACT_INACT_CTL; set all bits in the registers to 0.
+4.)MIGHT CAUSE ERROR:Set TIME_INACT to 0, this will cause an interrupt when the output data is less than the value in THRESH_INACT
+5.)Disable all functions related to activity by setting all ACT_X AND INACT_X enable bits to 0 to disable INACT/ACT functions.
+   Also, Set ACT AC/DC and INACT AC/DC bits to 0 to enable DC coupled operation, which compares values in THRESH INACT/ACT registers, which are set.
+------------------------------------------------------
+Disabling Double Tap Detection: [Done]
+1.)Disable LATENT Register to disable double tap detection.
+2.)Disable WINDOW Register to disable double tap detection.
+3.)Set Supress bit to 1 in TAP_AXES Register to ensure tap_detection is suppressed.
+------------------------------------------------------
+Disabling Free-Fall Detection: [Done]
+1.)Disable THRESH_FF by setting all bits to 0, but ensure that free fall interrupt is disabled to avoid undesireable behaviour.
+2.)Disable TIME_FF by setting all bits to 0, but ensure that free fall interrupt is disabled to avoid undesireable behaviour.
+------------------------------------------------------
+Setting up single tap detection and calibration.
+1.)Set the TAP_AXES register, set TAP_EN bit on specified axis from profile. [Done]
+2.)Start sensor calibration; read offset values and compare them to stored values in a setup file
+   If no values are found in the setup files, then start calibration routine and then write values to
+   the registers OFSX, OFSY, OFSZ.
+3.)Set THRESH_TAP parameter, set this with another script which sets threshold for taps.
+4.)Set DUR parameter; set this using another script which uses trial and error to find optimum value.
+   Store this value in the setup file, and write this to the setup file.
+5.)Set the BW_RATE register, Set LOW_POWER bit to 0 to specify normal operation, Set rate to required data rate from profile.
+------------------------------------------------------
+Tap Detection Program:
+1.)Start sensor setup, disable all functions except Tap Detection [Done]
+2.)Set sensor power mode, data rate, etc. [Done]
+3.)Read ACT_TAP_STATUS (Read-Only) when interrupt is triggered, make sure Sleep bit is set to 0.
+OR
+4.)Read Data X,Y,Z whenever interrupt is raised, or if polling is used, keep checking the value of INT_SOURCE
+   Conduct multiple byte read of registers in the range of 0x32 to 0x37 to grab data
