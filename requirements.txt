@@ -1,6 +1,0 @@
-colorama==0.4.6
-colorlog==6.9.0
-Mock.GPIO==0.1.10
-setuptools==78.1.1
-smbus2 @ file:///home/conda/feedstock_root/build_artifacts/smbus2_1693011935891/work
-wheel==0.45.1
