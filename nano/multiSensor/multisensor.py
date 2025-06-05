@@ -9,6 +9,21 @@ from bleak import BleakClient,BleakScanner
 from datetime import datetime
 from aiocsv import AsyncWriter
 
+"""
+Methods to investigate:
+
+1.) Round Robin Buffer, each sensor fills a temporary buffer once, which is then appended to a file buffer
+    which is then batch inserted to disk
+2.) Send sample number + data from arduino 
+3.) Use dask for storing values which may be large for in memory
+4.) IMPORTANT!!!! : Number of diverging samples could be caused by differing sample rates.
+    Graph number of samples vs time to verify this.
+5.) Test performance with and without asyncio writes to disk, and single thread vs multiprocess
+6.) Create a single threaded version of this script for archival/testing purposes.
+
+"""
+
+
 #UUID for custom characteristic used by the arduino
 ACCEL_DATA_UUID =  "00002101-0000-1000-8000-00805f9b34fb".lower()
 
