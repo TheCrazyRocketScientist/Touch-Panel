@@ -1,40 +1,40 @@
-import pandas as pd
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-import sys
+import seaborn as sns
 
-# List your CSV file paths here or pass as command-line arguments
-file_paths = sys.argv[1:]  # python plot_time_series.py file1.csv file2.csv file3.csv
+# Get raw data and labels
 
-if len(file_paths) < 1:
-    print("Usage: python plot_time_series.py file1.csv file2.csv file3.csv")
-    sys.exit(1)
+from label_data import get_train_data
+X_train,y_train = data,labels = get_train_data(window_size=0.6,overlap=0.2)
 
-# Optional colors if you want to customize per file
-colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
 
-fig, axs = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
-axs[0].set_title("Accelerometer X")
-axs[1].set_title("Accelerometer Y")
-axs[2].set_title("Accelerometer Z")
+X_train = X_train[y_train!=0]
+y_train = y_train[y_train!=0]
 
-for i, file in enumerate(file_paths):
-    df = pd.read_csv(file)
 
-    # Convert 'timestamp' to datetime and set as index
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df.set_index('timestamp', inplace=True)
+# Flatten to shape (N, 42)
+X_flat = X_train.reshape(X_train.shape[0], -1)
 
-    label = f"Sensor {i+1} ({file})"
-    color = colors[i % len(colors)]
+from mpl_toolkits.mplot3d import Axes3D
 
-    axs[0].plot(df.index, df['x'], label=label, color=color)
-    axs[1].plot(df.index, df['y'], label=label, color=color)
-    axs[2].plot(df.index, df['z'], label=label, color=color)
+pca = PCA(n_components=3)
+X_pca_3d = pca.fit_transform(X_flat)
 
-for ax in axs:
-    ax.legend()
-    ax.grid(True)
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+scatter = ax.scatter(X_pca_3d[:, 0], X_pca_3d[:, 1], X_pca_3d[:, 2], c=y_train, cmap='tab10', s=20)
+ax.set_title('3D PCA of Accelerometer Windows')
+plt.legend(*scatter.legend_elements(), title="Classes")
+plt.show()
 
-axs[-1].set_xlabel("Time")
-plt.tight_layout()
+
+
+# ----- t-SNE -----
+tsne = TSNE(n_components=2, perplexity=30, random_state=42, n_iter=1000)
+X_tsne = tsne.fit_transform(X_flat)
+
+plt.figure(figsize=(8, 6))
+sns.scatterplot(x=X_tsne[:,0], y=X_tsne[:,1], hue=y_train, palette='tab10')
+plt.title("t-SNE of Raw Accelerometer Windows")
 plt.show()

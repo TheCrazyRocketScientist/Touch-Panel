@@ -4,8 +4,6 @@ import datetime
 import matplotlib.pyplot as plt
 
 
-window_size = 0.4
-stride = window_size*0.5
 
 
 def set_df(df):
@@ -18,9 +16,11 @@ def set_df(df):
     return df
 
 
-def chop_label_ts(df,region,axis):
+def chop_label_ts(df,region,axis,window_size,overlap):
 
     sensor_taps = []
+    stride = window_size*overlap
+
 
     
     std_dev = np.std(df[axis])
@@ -107,7 +107,7 @@ def resample_to_50hz(df):
     return df_resampled
 
 
-def get_train_data():
+def get_train_data(window_size,overlap):
 
     train_data = []
     train_labels = []
@@ -115,8 +115,8 @@ def get_train_data():
 
     for region in range(1,5):
 
-        df_sensor_one = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\region{region}_ten_taps\SENSOR0_data.csv")
-        df_sensor_two = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\region{region}_ten_taps\SENSOR1_data.csv")
+        df_sensor_one = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\region{region}_extended\SENSOR1_data.csv")
+        df_sensor_two = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\region{region}_extended\SENSOR2_data.csv")
 
         df_sensor_one = set_df(df_sensor_one)
         df_sensor_two = set_df(df_sensor_two)
@@ -131,10 +131,11 @@ def get_train_data():
         df_sensor_two = df_sensor_two[recording_start:recording_end]
 
 
-        data_sensor_one,sensor_one_labels,_ = chop_label_ts(df_sensor_one,region,axis='z')
+
+        data_sensor_one,sensor_one_labels,_ = chop_label_ts(df_sensor_one,region,'z',window_size,overlap)
         sensor_one_labels = label_artifacts(sensor_one_labels,region,window_artifact_number=0)
 
-        data_sensor_two,sensor_two_labels,_ = chop_label_ts(df_sensor_two,region,axis='z')
+        data_sensor_two,sensor_two_labels,_ = chop_label_ts(df_sensor_two,region,'z',window_size,overlap)
         sensor_two_labels = label_artifacts(sensor_two_labels,region,window_artifact_number=0)
 
         sensor_data = np.stack([data_sensor_one,data_sensor_two],axis=-1)
@@ -143,8 +144,8 @@ def get_train_data():
         train_data.append(sensor_data)
         train_labels.append(sensor_labels)
 
-    train_data = np.concat(train_data,axis=0)
-    train_labels = np.concat(train_labels,axis=0)
+    train_data = np.concatenate(train_data,axis=0)
+    train_labels = np.concatenate(train_labels,axis=0)
 
     return train_data,train_labels
 
