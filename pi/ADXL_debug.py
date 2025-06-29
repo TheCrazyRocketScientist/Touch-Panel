@@ -191,52 +191,34 @@ class ADXL345:
       GPIO.remove_event_detect(self.INT0)
 
 
-   def read_data(self,channel=None):
-
-      """
-      Function for reading data, will store latest values and tap flag when interrupt is triggered
-
-      This will always use single integers, the lists are overidden to ensure only one value remaines in this buffer
-      """
+   def read_data(self, channel=None):
+      GPIO.remove_event_detect(self.INT0)  # temporarily disable to avoid nested calls
 
       try:
-         source_content = self.bus.read_byte_data(self.address,ADXL_Registers.INT_SOURCE)
-      except (IOError,OSError) as e:
-         self.logger.error(f"I2C read error during data read [INT_SOURCE]: {e}")
-         sys.exit()
-      except (TimeoutError) as e:
-         self.logger.error(f"I2C bus timed out during data read. [INT_SOURCE]")
-         sys.exit()
-      except Exception as e:
-         self.logger.error(f"I2C error occured during data read. [INT_SOURCE]")
-         sys.exit()
+         # Clear interrupt latch (some versions need 2 reads)
+         source_content = self.bus.read_byte_data(self.address, ADXL_Registers.INT_SOURCE)
+         _ = self.bus.read_byte_data(self.address, ADXL_Registers.INT_SOURCE)
 
+         if not (source_content & 0x80):  # DATA_READY not triggered
+               return
 
-      if not (source_content & 0x80):
-         return
-      
-      else:
-
-         try:
-            data = self.bus.read_i2c_block_data(self.address,ADXL_Registers.DATAX0,6)
-         except (IOError,OSError) as e:
-            self.logger.error(f"I2C read error while reading data block during sensor read: {e}")
-         except (TimeoutError) as e:
-            self.logger.error(f"I2C bus timed out while reading data block during sensor read.")
-         except Exception as e:
-            self.logger.error(f"I2C error occured while reading data block during sensor read.")
-
-         data_bytes = bytes(data)
-         x,y,z = struct.unpack('<hhh',data_bytes)
+         # Read acceleration data
+         data = self.bus.read_i2c_block_data(self.address, ADXL_Registers.DATAX0, 6)
+         x, y, z = struct.unpack('<hhh', bytes(data))
 
          self.x_vals = x
          self.y_vals = y
          self.z_vals = z
 
-      if (source_content & 0x40):
-         self.tap = 1
-      else:
-         self.tap = 0
+      except (IOError, OSError) as e:
+         self.logger.error(f"I2C read error: {e}")
+      except TimeoutError:
+         self.logger.error("I2C timeout error.")
+      except Exception as e:
+         self.logger.error(f"Unexpected error: {e}")
+      finally:
+         time.sleep(0.005)  # debounce
+         GPIO.add_event_detect(self.INT0, GPIO.RISING, callback=self.read_data)
 
    
    def startup(self):
