@@ -2,9 +2,12 @@ import random
 import numpy as np
 import pandas as pd
 import torch
+import seaborn as sns
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset,DataLoader
+from sklearn.manifold import TSNE
+
 
 #fix seed for reproducable results
 seed = 42
@@ -117,7 +120,10 @@ class tap_cnn(nn.Module):
             self.bn2 = nn.BatchNorm1d(c2)
 
 
-    def forward(self, x):
+    def forward(self, x, return_features=False):
+
+        self.return_features = return_features
+
         # Input x shape: (batch_size, sequence_length, channels)
         x = x.permute(0, 2, 1)  # (batch, channels, sequence)
 
@@ -143,6 +149,10 @@ class tap_cnn(nn.Module):
 
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
+
+        if self.return_features:
+            return x
+
         x = self.dropout(x)
         x = self.fc2(x)
         return x
@@ -153,6 +163,10 @@ def handle_loss():
 
 
 if __name__ == "__main__":
+
+    #bool for cm or tsne plot: 
+    tsne_plot = False
+
     #check GPU availibility
 
     if torch.cuda.is_available():
@@ -165,34 +179,26 @@ if __name__ == "__main__":
     batch_size = 64
     
     #get data of given window size and overlap
-    data,labels = get_train_data(window_size=0.6,overlap=1.0)
+    data_version_one,labels_one = get_train_data(window_size=0.80,overlap=1.0,version=1)
+    data_version_two,labels_two = get_train_data(window_size=0.80,overlap=1.0,version=2)
 
-    #remove noise from the datasetss
-    noise = data[labels == 0]
-    data = data[labels != 0]
-    labels = labels[labels != 0]
+    data = np.concatenate([data_version_one,data_version_two],axis=0)
+    labels = np.concatenate([labels_one,labels_two],axis=0)
 
-    #get sequence lenght from shape of data
-    sequence_length = data.shape[1]
+    #get sequence length from shape of data
+    sequence_length = data_version_one.shape[1]
 
     #get test train split
     X_train,X_test,y_train,y_test = train_test_split(data,labels,test_size=0.20,random_state=42,shuffle=True,stratify=labels)
 
-    #figure out how much noise to add per test set
-    test_counts = np.unique_counts(y_test)
-    noise_amount = int((test_counts.counts.sum())/(len(test_counts.counts)))
+    train_noise = X_train[y_train == 0]
+    X_train = X_train[y_train != 0]
+    y_train = y_train[y_train != 0]
+
 
     #specify how many noise samples will be introduced per epoch
     train_counts = np.unique_counts(y_train)
     epoch_noise_samples = int((train_counts.counts.sum())/(len(train_counts.counts)))
-
-    #select random indices to use noise samples from
-    noise_index_arr = np.random.choice(len(noise),size=noise_amount)
-    test_noise = noise[noise_index_arr]
-
-    #concat noise to test/validation set
-    X_test = np.concatenate([X_test,test_noise],axis=0)
-    y_test = np.concatenate([y_test,np.zeros(shape=(noise_amount,),dtype=int)],axis=0)
 
     #use custom dataset derived child class
     test_dataset = accelerometer_data(data=X_test,labels=y_test)
@@ -201,7 +207,7 @@ if __name__ == "__main__":
     test_dataloader = DataLoader(dataset=test_dataset,shuffle=False,batch_size=batch_size,num_workers=0)
 
     #create an instance of tap cnn
-    model = tap_cnn(channels=2, num_classes=5,sequence_length=sequence_length).to(device)
+    model = tap_cnn(channels=3, num_classes=5,sequence_length=sequence_length).to(device)
 
     #use adam not sgd
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
@@ -219,8 +225,8 @@ if __name__ == "__main__":
     for epoch in range(num_epochs):
 
         #grab random noise samples and inject into training data per epoch
-        noise_index_arr = np.random.choice(len(noise),size=epoch_noise_samples)
-        epoch_noise = noise[noise_index_arr]
+        noise_index_arr = np.random.choice(len(train_noise),size=epoch_noise_samples)
+        epoch_noise = train_noise[noise_index_arr]
 
         #concat noise with training data
         epoch_data = np.concatenate([X_train,epoch_noise],axis=0)
@@ -328,6 +334,7 @@ model.eval()
 
 all_preds = []
 all_labels = []
+all_features = []
 
 # Use no grad context manager
 with torch.no_grad():
@@ -335,28 +342,52 @@ with torch.no_grad():
         data = data.to(device)
         labels = labels.to(device)
 
-        outputs = model(data)
-        _, preds = torch.max(outputs, 1)
+        if tsne_plot == False:
 
-        all_preds.extend(preds.cpu().numpy())
+            outputs = model(data,return_features=tsne_plot)
+            _, preds = torch.max(outputs, 1)
+            all_preds.extend(preds.cpu().numpy())
+
+        else:
+            features = model(data,return_features=tsne_plot)
+            all_features.append(features.cpu().numpy())
+
         all_labels.extend(labels.cpu().numpy())
 
 # Convert lists to numpy arrays
 all_preds = np.array(all_preds)
 all_labels = np.array(all_labels)
 
-# Generate confusion matrix
-cm = confusion_matrix(all_labels, all_preds)
+# Generate confusion matrix or tsne plot
 
-# Define class names (adjust these based on your actual labels)
-# Assuming 0: Noise, 1: Tap1, 2: Tap2, 3: Tap3, 4: Tap4
-class_names = ['Noise', 'Tap1', 'Tap2', 'Tap3', 'Tap4'] # Adjust these based on your actual label mapping
+if tsne_plot == False:
 
-# Display the confusion matrix
-fig, ax = plt.subplots(figsize=(8, 8))
-disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
-disp.plot(cmap=plt.cm.Blues, ax=ax)
-ax.set_title('Confusion Matrix for Test Set')
+    cm = confusion_matrix(all_labels, all_preds)
+
+    class_names = ['Noise', 'Tap1', 'Tap2', 'Tap3', 'Tap4']
+
+    # Display the confusion matrix
+    fig, ax = plt.subplots(figsize=(8, 8))
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+    disp.plot(cmap=plt.cm.Blues, ax=ax)
+    ax.set_title('Confusion Matrix for Test Set')
+
+else:
+    all_features = np.concatenate(all_features,axis=0)
+    tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, random_state=42)
+    tsne_results = tsne.fit_transform(all_features)
+
+    # Plot
+    plt.figure(figsize=(10, 7))
+    sns.scatterplot(
+        x=tsne_results[:, 0],
+        y=tsne_results[:, 1],
+        hue=all_labels,
+        palette="tab10",
+        alpha=0.8,
+        s=60,
+        edgecolor='k'
+    )
 
 
 

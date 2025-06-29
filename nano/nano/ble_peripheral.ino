@@ -49,6 +49,8 @@ Consult official documentation.
 #include <ArduinoBLE.h>
 
 // Uncomment based on your board revision
+// This uses the unmodified libraries
+
 
 //#include <Arduino_LSM6DSOX.h> // keep for backup
 //#include "Arduino_BMI270_BMM150.h" // rev2

@@ -5,7 +5,7 @@ import seaborn as sns
 
 # Get raw data and labels
 
-from label_data import get_train_data
+from nano.multiSensor.chrono_label_data import get_train_data
 X_train,y_train = data,labels = get_train_data(window_size=0.6,overlap=0.2)
 
 

@@ -38,7 +38,7 @@ INT0: GPIO24
 
 
 """
-from pi_setup.ADXL import ADXL345
+from ADXL import ADXL345
 from smbus2 import SMBus
 
 #this import changes depending on platform, mock is used for development, Rpi.GPIO is used on the Pi board

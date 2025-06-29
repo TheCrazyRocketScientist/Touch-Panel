@@ -107,7 +107,7 @@ def resample_to_50hz(df):
     return df_resampled
 
 
-def get_train_data(window_size,overlap):
+def get_train_data(window_size,overlap,version=1):
 
     train_data = []
     train_labels = []
@@ -115,31 +115,40 @@ def get_train_data(window_size,overlap):
 
     for region in range(1,5):
 
-        df_sensor_one = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\region{region}_extended\SENSOR1_data.csv")
-        df_sensor_two = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\region{region}_extended\SENSOR2_data.csv")
+        if version == 2:
+            df_sensor_one = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\new_v2_region{region}_extended\SENSOR1_data.csv")
+            df_sensor_two = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\new_v2_region{region}_extended\SENSOR2_data.csv")
+            df_sensor_three = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\new_v2_region{region}_extended\SENSOR3_data.csv")
+        else:
+            df_sensor_one = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\new_region{region}_extended\SENSOR1_data.csv")
+            df_sensor_two = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\new_region{region}_extended\SENSOR2_data.csv")
+            df_sensor_three = pd.read_csv(rf"E:\Projects\Vibration Sensing Touch Panel\data\new_region{region}_extended\SENSOR3_data.csv")
+
+
 
         df_sensor_one = set_df(df_sensor_one)
         df_sensor_two = set_df(df_sensor_two)
+        df_sensor_three = set_df(df_sensor_three)
 
         df_sensor_one = resample_to_50hz(df_sensor_one)
         df_sensor_two = resample_to_50hz(df_sensor_two)
+        df_sensor_three = resample_to_50hz(df_sensor_three)
 
-        recording_start = max(df_sensor_two.index[0],df_sensor_one.index[0])
-        recording_end = min(df_sensor_two.index[-1],df_sensor_one.index[-1])
+        recording_start = max(df_sensor_two.index[0],df_sensor_one.index[0],df_sensor_three.index[0])
+        recording_end = min(df_sensor_two.index[-1],df_sensor_one.index[-1],df_sensor_three.index[-1])
 
         df_sensor_one = df_sensor_one[recording_start:recording_end]
         df_sensor_two = df_sensor_two[recording_start:recording_end]
+        df_sensor_three = df_sensor_three[recording_start:recording_end]
 
 
 
         data_sensor_one,sensor_one_labels,_ = chop_label_ts(df_sensor_one,region,'z',window_size,overlap)
-        sensor_one_labels = label_artifacts(sensor_one_labels,region,window_artifact_number=0)
-
         data_sensor_two,sensor_two_labels,_ = chop_label_ts(df_sensor_two,region,'z',window_size,overlap)
-        sensor_two_labels = label_artifacts(sensor_two_labels,region,window_artifact_number=0)
+        data_sensor_three,sensor_three_labels,_ = chop_label_ts(df_sensor_three,region,'z',window_size,overlap)
 
-        sensor_data = np.stack([data_sensor_one,data_sensor_two],axis=-1)
-        sensor_labels = [max(a,b) for a,b in zip(sensor_one_labels,sensor_two_labels)] #taking union of labels, just a hack for the moment
+        sensor_data = np.stack([data_sensor_one,data_sensor_two,data_sensor_three],axis=-1)
+        sensor_labels = [max(a,b,c) for a,b,c in zip(sensor_one_labels,sensor_two_labels,sensor_three_labels)] #taking union of labels, just a hack for the moment
 
         train_data.append(sensor_data)
         train_labels.append(sensor_labels)
