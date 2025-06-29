@@ -2,6 +2,8 @@
 
 import sys
 import time
+import logging
+import colorlog
 import struct
 import smbus2
 
@@ -84,6 +86,7 @@ class ADXL345:
       self.x_vals = []
       self.y_vals = []
       self.z_vals = []
+      self.tap = 0
 
       if address_select == False:
          self.address = ADXL_Helper.ADXL345_DEFAULT_ADDRESS
@@ -92,6 +95,58 @@ class ADXL345:
 
       GPIO.setup(self.INT0,GPIO.IN,pull_up_down=GPIO.PUD_DOWN)
 
+      """
+      Set up logging here, for each sensor instance a seperate logger will be used.
+      > Each logger is identified by the sensor number of the ADXL instance
+      > Logger format is colored for easy identification
+      > Specify format and color scheme
+      > Logger output goes to standard output
+
+      """
+      logger = logging.getLogger(f"SENSOR{self.number}")
+      logger.setLevel(logging.DEBUG)
+      console_handler = logging.StreamHandler(stream=sys.stdout)
+      #formatter = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s',datefmt='%H:%M:%S')
+      formatter = colorlog.ColoredFormatter(
+         fmt=(
+            '%(asctime)s | '
+            '%(white)s%(name)s | '
+            '%(log_color)s%(levelname)s | '
+            '%(log_color)s%(message)s'
+         ),
+         datefmt='%H:%M:%S',
+         log_colors={
+            'DEBUG':    'cyan',
+            'INFO':     'green',
+            'WARNING':  'yellow',
+            'ERROR':    'red',
+            'CRITICAL': 'white,bg_red'
+         },
+         secondary_log_colors={
+            'asctime': {
+                  'DEBUG':    'white',
+                  'INFO':     'white',
+                  'WARNING':  'white',
+                  'ERROR':    'white',
+                  'CRITICAL': 'white',
+            },
+            'name': {
+                  'DEBUG':    'white',
+                  'INFO':     'white',
+                  'WARNING':  'white',
+                  'ERROR':    'white',
+                  'CRITICAL': 'white',
+            }
+         },
+         style='%'
+      )
+
+      console_handler.setFormatter(formatter)
+      logger.addHandler(console_handler)
+
+      self.logger = logger
+
+
 
    def write_to_register(self,register_addr,content):
       """
@@ -99,6 +154,7 @@ class ADXL345:
       Only use with context manager outside function call
       Use read_data_byte for reading data from smbus2
       """
+      self.logger.info(f"Writing to the register {hex(register_addr)} with data: {hex(content)}")
 
       for _ in range(ADXL_Helper.attempts):
          self.bus.write_byte_data(self.address,register_addr,content)
@@ -120,7 +176,9 @@ class ADXL345:
       self.x_vals = 0
       self.y_vals = 0
       self.z_vals = 0
+      self.tap = 0
 
+      self.logger.info("Enabling data acquistion.")
 
       GPIO.add_event_detect(self.INT0, GPIO.RISING, callback=self.read_data)
 
@@ -128,6 +186,8 @@ class ADXL345:
    def stop_data(self):
    
       #Disables all sensor reads by removing interrupts responsible for reading the data.
+
+      self.logger.info("Disabling data acquistion.")
       GPIO.remove_event_detect(self.INT0)
 
 
@@ -142,10 +202,13 @@ class ADXL345:
       try:
          source_content = self.bus.read_byte_data(self.address,ADXL_Registers.INT_SOURCE)
       except (IOError,OSError) as e:
+         self.logger.error(f"I2C read error during data read [INT_SOURCE]: {e}")
          sys.exit()
       except (TimeoutError) as e:
+         self.logger.error(f"I2C bus timed out during data read. [INT_SOURCE]")
          sys.exit()
       except Exception as e:
+         self.logger.error(f"I2C error occured during data read. [INT_SOURCE]")
          sys.exit()
 
 
@@ -157,11 +220,11 @@ class ADXL345:
          try:
             data = self.bus.read_i2c_block_data(self.address,ADXL_Registers.DATAX0,6)
          except (IOError,OSError) as e:
-            pass
+            self.logger.error(f"I2C read error while reading data block during sensor read: {e}")
          except (TimeoutError) as e:
-            pass
+            self.logger.error(f"I2C bus timed out while reading data block during sensor read.")
          except Exception as e:
-            pass
+            self.logger.error(f"I2C error occured while reading data block during sensor read.")
 
          data_bytes = bytes(data)
          x,y,z = struct.unpack('<hhh',data_bytes)
@@ -169,6 +232,12 @@ class ADXL345:
          self.x_vals = x
          self.y_vals = y
          self.z_vals = z
+
+      if (source_content & 0x40):
+         self.tap = 1
+      else:
+         self.tap = 0
+
    
    def startup(self):
       """
@@ -181,11 +250,14 @@ class ADXL345:
       > Sensor is armed.
 
       """
+      self.logger.info("Sensor startup has begun.")
 
       self.start_init()
       self.calibrate()
       self.start_init()
 
+      self.logger.info("Sensor startup has ended.")
+      self.logger.warning("Sensor is armed.")
 
    def start_init(self):
       """
@@ -206,6 +278,7 @@ class ADXL345:
 
       """
 
+      self.logger.info("Sensor initialization has started.")
 
       try:
 
@@ -216,30 +289,38 @@ class ADXL345:
 
          self.write_to_register(ADXL_Registers.BW_RATE,0x00)
          self.write_to_register(ADXL_Registers.POWER_CTL,0x08)
-         self.write_to_register(ADXL_Registers.INT_ENABLE,0x80)
+         self.write_to_register(ADXL_Registers.INT_ENABLE,0xC0)
          self.write_to_register(ADXL_Registers.DATA_FORMAT,0x08)
          self.write_to_register(ADXL_Registers.FIFO_CTL,0x00)
-         self.write_to_register(ADXL_Registers.INT_MAP,0x00)
+         self.write_to_register(ADXL_Registers.INT_MAP,0x40)
          self.write_to_register(ADXL_Registers.BW_RATE,ADXL_Helper.data_rate_200)
 
+         self.logger.info("Initial values have been written to registers.")
 
          """
          > Next sequence; disable freefall, double tap, act/inact; set tap axis
          
          """
+         self.logger.info("Disabling freefall mode.")
          self.disable_freefall()
 
+         self.logger.info("Disabling activity mode.")
          self.disable_act()
 
+         self.logger.info("Disabling double tap mode.")
          self.disable_double_tap()
 
+         self.logger.info("Setting tap axis")
          self.set_axis()
 
       except (IOError,OSError) as e:
+         self.logger.error(f"I2C Write Error: {e}")
          sys.exit()
       except (TimeoutError) as e:
+         self.logger.error(f"I2C bus timed out during write.")
          sys.exit()
       except Exception as e:
+         self.logger.error(f"I2C error occured during write.")
          sys.exit()
 
 
@@ -252,6 +333,7 @@ class ADXL345:
       > Set up the interrupt, and specify callback function
 
       """
+      self.logger.info("Resetting offsets")
       self.reset_offsets()
 
       self.calibration_samples =  int(0.1*ADXL_Helper.data_rate)
@@ -285,13 +367,16 @@ class ADXL345:
          self.write_to_register(ADXL_Registers.OFSY, offset_y_byte)
          self.write_to_register(ADXL_Registers.OFSZ, offset_z_byte)
       except (IOError,OSError) as e:
-         pass
+         self.logger.error(f"I2C write error while setting offsets: {e}")
       except (TimeoutError) as e:
-         pass
+         self.logger.error(f"I2C bus timed out while setting offsets.")
       except Exception as e:
-         pass
+         self.logger.error(f"I2C error occured during setting offsets.")
+
 
       self.x_vals,self.y_vals,self.z_vals = [],[],[]
+
+      self.logger.info("Offsets have been written.")
 
 
    def calibration_callback(self,channel):
@@ -310,10 +395,13 @@ class ADXL345:
       try:
          source_content = self.bus.read_byte_data(self.address,ADXL_Registers.INT_SOURCE)
       except (IOError,OSError) as e:
+         self.logger.error(f"I2C read error while calibrating [INT_SOURCE]: {e}")
          sys.exit()
       except (TimeoutError) as e:
+         self.logger.error(f"I2C bus timed out while calibrating. [INT_SOURCE]")
          sys.exit()
       except Exception as e:
+         self.logger.error(f"I2C error occured during calibration. [INT_SOURCE]")
          sys.exit()
 
 
@@ -323,11 +411,11 @@ class ADXL345:
       try:
          data = self.bus.read_i2c_block_data(self.address,ADXL_Registers.DATAX0,6)
       except (IOError,OSError) as e:
-         pass
+         self.logger.error(f"I2C read error while reading data block for calibration: {e}")
       except (TimeoutError) as e:
-         pass
+         self.logger.error(f"I2C bus timed out while reading data block for calibration.")
       except Exception as e:
-         pass
+         self.logger.error(f"I2C error occured while reading data block for calibration.")
 
       data_bytes = bytes(data)
       x,y,z = struct.unpack('<hhh',data_bytes)
@@ -345,11 +433,11 @@ class ADXL345:
          self.write_to_register(ADXL_Registers.OFSY, 0x00)
          self.write_to_register(ADXL_Registers.OFSZ, 0x00)
       except (IOError,OSError) as e:
-         pass
+         self.logger.error(f"I2C write error while resetting offsets: {e}")
       except (TimeoutError) as e:
-         pass
+         self.logger.error(f"I2C bus timed out while resetting offsets.")
       except Exception as e:
-         pass
+         self.logger.error(f"Error occured during resetting offsets.")
 
 
    def set_axis(self):
@@ -405,6 +493,7 @@ class ADXL345:
 
       Calling any one sensor will clean GPIO for all
       """
+      self.logger.info("Closing sensor")
 
       GPIO.cleanup()
 

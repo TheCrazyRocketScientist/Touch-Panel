@@ -1,78 +1,29 @@
-"""
-Obtain set number of readings and estimate optimum values of DUR and THRESH_TAP
+import time
+import struct
+import smbus2
+import RPi.GPIO as GPIO
+from pi.ADXL_debug import ADXL345  # make sure path is correct
 
+# --- Setup I²C bus 0 ---
+bus0 = smbus2.SMBus(0)
 
-Reading Procedure for sensors:
-1.)Bind interrupts for data_ready only, No interrupt for tap detection
-2.)Every time the interrupt is triggered, check the int source register
-3.)If tap detected bit is set, then set the tap flag to 1 in the buffer
-4.)After all sensors are read, write their data in the combined buffer
-5.)buffer batch inserts data into the file
-
-
-All sensor reads are I/O bound tasks, not to mention file handling.
-"""
-
-"""
-Raspberry Pi Pinout
-
-BUS0:
-SDA GPIO0
-SCL GPIO1
-
-BUS1:
-SDA GPIO2
-SCL GPIO3
-
-SENSOR0:
-INT0 GPIO5
-
-SENSOR1:
-INT0 GPIO6
-
-SENSOR2:
-INT0 GPIO23
-
-SENSOR3:
-INT0: GPIO24
-
-
-"""
-from ADXL import ADXL345
-from smbus2 import SMBus
-
-#this import changes depending on platform, mock is used for development, Rpi.GPIO is used on the Pi board
-#IMPORTANT: For the raspberry pi 4B+ use the lgpio libary. Consult Library documentation for using it appropriately.
-
-try:
-   import RPi.GPIO as GPIO
-except ImportError:
-   import Mock.GPIO as GPIO
-
-
-
-
-bus0 = SMBus(0)
-bus1 = SMBus(1)
-
-#uncomment set to broadcom numbering scheme
+# --- Setup GPIO mode ---
 GPIO.setmode(GPIO.BCM)
-#comment to set to board numbering scheme
-#GPIO.setmode(GPIO.BOARD)
-#set interrput to input wtih pull down to reduce noise and weirdness
-#this is used to handle active high interrupts
+GPIO.setup(17, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
-sensor0 = ADXL345("upper left",bus0,5,False,0)
-sensor1 = ADXL345("upper right",bus0,6,True,1)
-sensor2 = ADXL345("lower left",bus1,23,False,2)
-sensor3 = ADXL345("lower right",bus1,24,True,3)
+# --- Setup ADXL345 Sensor (Address = 0x1D, GPIO17 = INT0) ---
+sensor = ADXL345("sensor0", bus0, 17, address_select=True, number=0)
 
-sensor0.startup()
-sensor1.startup()
-sensor2.startup()
-sensor3.startup()
+# --- Initialize and start data acquisition ---
+sensor.startup()
+sensor.get_data()
 
-ADXL345.close()
-
-
-
+# --- Main Loop: Read 100 samples and print them ---
+try:
+    for _ in range(100):
+        time.sleep(0.01)  # 10ms for ~100Hz effective rate
+        print(f"X: {sensor.x_vals}, Y: {sensor.y_vals}, Z: {sensor.z_vals}, Tap: {getattr(sensor, 'tap', 0)}")
+except KeyboardInterrupt:
+    print("Interrupted by user.")
+finally:
+    sensor.close()
