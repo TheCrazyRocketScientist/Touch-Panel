@@ -27,3 +27,4 @@ except KeyboardInterrupt:
     print("Interrupted by user.")
 finally:
     sensor.close()
+         

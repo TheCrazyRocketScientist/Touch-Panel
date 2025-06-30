@@ -121,6 +121,8 @@ class ADXL345:
       self.y_vals = 0
       self.z_vals = 0
 
+      _ = self.bus.read_byte_data(self.address,ADXL_Registers.INT_SOURCE)
+      _ = self.bus.read_i2c_block_data(self.address,ADXL_Registers.DATAX0,6)
 
       GPIO.add_event_detect(self.INT0, GPIO.RISING, callback=self.read_data)
 
@@ -136,7 +138,7 @@ class ADXL345:
       """
       Function for reading data, will store latest values and tap flag when interrupt is triggered
 
-      This will always use single integers, the lists are overidden to ensure only one value remaines in this buffer
+      This will always use single integers, the lists are overidden to ensure only one value remains in this buffer
       """
 
       try:
@@ -184,7 +186,6 @@ class ADXL345:
 
       self.start_init()
       self.calibrate()
-      self.start_init()
 
 
    def start_init(self):
@@ -255,6 +256,9 @@ class ADXL345:
       self.reset_offsets()
 
       self.calibration_samples =  int(0.1*ADXL_Helper.data_rate)
+
+      _ = self.bus.read_byte_data(self.address,ADXL_Registers.INT_SOURCE)
+      _ = self.bus.read_i2c_block_data(self.address,ADXL_Registers.DATAX0,6)
 
       # Attach interrupt on rising edge (INT0 goes from LOW to HIGH on data ready)
       GPIO.add_event_detect(self.INT0, GPIO.RISING, callback=self.calibration_callback)
