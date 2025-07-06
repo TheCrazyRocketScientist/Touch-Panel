@@ -7,8 +7,6 @@ set(CMAKE_CXX_STANDARD 17)
 find_package(pybind11 REQUIRED)
 
 # Find pigpio using pkg-config
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(PIGPIO REQUIRED pigpio)
 
 # Create the Python module
 add_library(adxl MODULE
@@ -18,18 +16,16 @@ add_library(adxl MODULE
 
 # Include dirs
 target_include_directories(adxl PRIVATE
-    ${PIGPIO_INCLUDE_DIRS}
+    /usr/include
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Link to libraries
+# Link to pigpio directly
 target_link_libraries(adxl PRIVATE
     pybind11::module
-    ${PIGPIO_LIBRARIES}
+    pigpio
 )
 
-# Define pigpio flags
-target_compile_definitions(adxl PRIVATE ${PIGPIO_CFLAGS_OTHER})
 
 # Output as .so file (for import in Python)
 set_target_properties(adxl PROPERTIES
