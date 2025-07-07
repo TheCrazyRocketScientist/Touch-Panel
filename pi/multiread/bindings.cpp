@@ -9,6 +9,7 @@ PYBIND11_MODULE(adxl, m) {
         .def(py::init<int, int>())
         .def("startup", &ADXL345::startup)
         .def("get_data", &ADXL345::get_data)
+        .def("register_callback",&ADXL345::register_callback)
         .def("close", &ADXL345::close)
         .def("__del__", &ADXL345::close)
         .def_readonly("x", &ADXL345::x)

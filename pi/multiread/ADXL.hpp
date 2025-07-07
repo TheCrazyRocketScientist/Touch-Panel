@@ -1,8 +1,12 @@
-#ifndef ADXL_H
-#define ADXL_H
+#pragma once
 
 #include <vector>
 #include <cstdint>
+#include <pybind11/stl.h>
+#include <pybind11/pybind11.h>
+
+namespace py = pybind11;
+
 
 class ADXL_Helper
 {
@@ -50,9 +54,13 @@ class ADXL345{
 
    public:
 
-      int16_t x;
-      int16_t y;
-      int16_t z;
+      int16_t raw_x;
+      int16_t raw_y;
+      int16_t raw_z;
+
+      float x;
+      float y;
+      float z;
 
       int8_t offset_x;
       int8_t offset_y;
@@ -73,10 +81,12 @@ class ADXL345{
       uint8_t source_content;
 
 
-      uint8_t in_buffer[2];
       uint8_t read_buffer[2];
       uint8_t write_buffer[2];
-      uint8_t out_buffer[6];
+      uint8_t in_buffer[7];
+      uint8_t out_buffer[7];
+
+      static py::function python_callback;
 
 
       ADXL345(int number, int pin);
@@ -90,6 +100,7 @@ class ADXL345{
       void disable_act();
       void start_init();
       void startup();
+      void register_callback(py::function sent_callback);
       void get_data();
       void close();
 
@@ -97,5 +108,3 @@ class ADXL345{
 
 void calibration_callback(int gpio, int level, uint32_t tick);
 void read_data(int gpio, int level, uint32_t tick);
-
-#endif

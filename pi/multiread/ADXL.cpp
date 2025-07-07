@@ -4,12 +4,16 @@
 #include <numeric>
 #include <stdexcept>
 #include <cstdint>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
 
 #include "ADXL.hpp"
 
 
 #define BUS_SPEED 1000000
 
+namespace py = pybind11;
 using namespace std;
 
 ADXL345* global_instance = nullptr;
@@ -26,7 +30,7 @@ ADXL345* global_instance = nullptr;
          std::cerr << "PIGPIO was not initialized\n" ; 
       }
 
-      this->spi_handle = spiOpen(this->number,BUS_SPEED,0);
+      this->spi_handle = spiOpen(this->number,BUS_SPEED,0x03);
 
       if(this->spi_handle < 0){
          std::cerr << "PIGPIO was not initialized\n" ; 
@@ -228,6 +232,12 @@ ADXL345* global_instance = nullptr;
 
    }
 
+   void ADXL345::register_callback(py::function sent_callback){
+
+      this->python_callback = sent_callback;
+
+   }
+
 void calibration_callback(int gpio, int level, uint32_t tick){
 
          if(level == 1 && global_instance != nullptr){
@@ -248,20 +258,20 @@ void calibration_callback(int gpio, int level, uint32_t tick){
             }
             
             global_instance->in_buffer[0] = ADXL_Registers::DATAX0 | 0xC0;
-            global_instance->in_buffer[1] = 0x00;
+            for(int i = 1; i < 7; i++) global_instance->in_buffer[i] = 0x00;
 
-            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,6);
-            if(global_instance->refresh != 6){
+            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,7);
+            if(global_instance->refresh != 7){
                return;
             }
 
-            global_instance->x = static_cast<int16_t> ((global_instance->out_buffer[1] << 8) | global_instance->out_buffer[0]);
-            global_instance->y = static_cast<int16_t> ((global_instance->out_buffer[3] << 8) | global_instance->out_buffer[2]);
-            global_instance->z = static_cast<int16_t> ((global_instance->out_buffer[5] << 8) | global_instance->out_buffer[4]);
+            global_instance->raw_x = static_cast<int16_t> ((global_instance->out_buffer[2] << 8) | global_instance->out_buffer[1]);
+            global_instance->raw_y = static_cast<int16_t> ((global_instance->out_buffer[4] << 8) | global_instance->out_buffer[3]);
+            global_instance->raw_z = static_cast<int16_t> ((global_instance->out_buffer[6] << 8) | global_instance->out_buffer[5]);
 
-            global_instance->x_calib.push_back(global_instance->x);
-            global_instance->y_calib.push_back(global_instance->y);
-            global_instance->z_calib.push_back(global_instance->z);
+            global_instance->x_calib.push_back(global_instance->raw_x);
+            global_instance->y_calib.push_back(global_instance->raw_y);
+            global_instance->z_calib.push_back(global_instance->raw_z);
 
          }
 
@@ -285,17 +295,37 @@ void read_data(int gpio, int level, uint32_t tick){
             }
 
             global_instance->in_buffer[0] = ADXL_Registers::DATAX0 | 0xC0;
-            global_instance->in_buffer[1] = 0x00;
+            for(int i = 1; i < 7; i++) global_instance->in_buffer[i] = 0x00;
 
 
-            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,6);
-            if(global_instance->refresh != 6){
+            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,7);
+            if(global_instance->refresh != 7){
                return;
             }
 
-            global_instance->x = static_cast<int16_t> ((global_instance->out_buffer[1] << 8) | global_instance->out_buffer[0]);
-            global_instance->y = static_cast<int16_t> ((global_instance->out_buffer[3] << 8) | global_instance->out_buffer[2]);
-            global_instance->z = static_cast<int16_t> ((global_instance->out_buffer[5] << 8) | global_instance->out_buffer[4]);
+            global_instance->raw_x = static_cast<int16_t> ((global_instance->out_buffer[2] << 8) | global_instance->out_buffer[1]);
+            global_instance->raw_y = static_cast<int16_t> ((global_instance->out_buffer[4] << 8) | global_instance->out_buffer[3]);
+            global_instance->raw_z = static_cast<int16_t> ((global_instance->out_buffer[6] << 8) | global_instance->out_buffer[5]);
+
+            global_instance->x = ((static_cast<float> (global_instance->raw_x))/256.0);
+            global_instance->y = ((static_cast<float> (global_instance->raw_y))/256.0);
+            global_instance->z = ((static_cast<float> (global_instance->raw_z))/256.0);
+
+            if(global_instance->python_callback){
+
+               try{
+
+               py::gil_scoped_acquire acquire;
+               global_instance->python_callback();
+
+               }
+               catch (const std::exception& e) {
+
+               std::cerr << "Python Error: " << e.what() << std::endl;
+               return;
+      }
+
+            }
 
    }
 

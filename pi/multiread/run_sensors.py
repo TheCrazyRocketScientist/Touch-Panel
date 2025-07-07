@@ -24,6 +24,8 @@ int_pin = args.int_pin
 file_name = f"SENSOR{sensor_num}_data.csv"
 
 buffer = []
+reading = []
+val_buffer = []
 buffer_lock = asyncio.Lock()
 
 
@@ -35,39 +37,38 @@ async def insert_data():
     
     while True:
         
-        if(len(buffer)) >= batch_size:
+        async with buffer_lock:
 
-            async with buffer_lock:
+            if(len(buffer)) >= batch_size:
+
                 file_buffer = buffer
                 buffer = []
 
-            async with aiofiles.open(file_name,mode="a",newline="") as my_file:
+                async with aiofiles.open(file_name,mode="a",newline="") as my_file:
 
-                writer = AsyncWriter(my_file, dialect="excel")
-                await writer.writerows(file_buffer)
+                    writer = AsyncWriter(my_file, dialect="excel")
+                    await writer.writerows(file_buffer)
 
-                await my_file.flush()
+                    await my_file.flush()
 
 
         await asyncio.sleep(0.001)
-            
-async def read_sensor():
 
-    while True:
-        async with buffer_lock:
-            current_time = datetime.now()
-            # Format the date and time using strftime
-            formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-            buffer.append([formatted_time,sensor.x,sensor.y,sensor.z])
-            #print([formatted_time,x,y,z])
+def read_sensor():
 
-        await asyncio.sleep(0.005)
+    global reading
+    global buffer
+
+    current_time = datetime.now()
+    formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    reading = [formatted_time,sensor.x,sensor.y,sensor.z]
+    asyncio.get_event_loop().call_soon_threadsafe(buffer.append,reading)
 
 
 async def main():
 
-    tasks = [insert_data(),read_sensor()]
+    tasks = [insert_data()]
     await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
@@ -80,14 +81,17 @@ if __name__ == "__main__":
                 writer = csv.writer(f)
                 writer.writerow(["timestamp", "x", "y", "z"])
 
+        sensor.register_callback(read_sensor)
         sensor.startup()
         sensor.get_data()
         asyncio.run(main())
 
     except KeyboardInterrupt:
+
+        print("Interrupted, flushing buffer to disk...")
+        if buffer:
+            with open(file_name, mode="a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerows(buffer)
         sensor.close()
-        print("Interrupted, Ending Process")
-
-
-
-    
+        print("Sensor closed. Exiting.")
