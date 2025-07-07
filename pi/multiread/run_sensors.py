@@ -68,7 +68,7 @@ def read_sensor():
     current_time = datetime.now()
     formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     reading = [formatted_time,sensor.x,sensor.y,sensor.z]
-    asyncio.get_event_loop().call_soon_threadsafe(buffer.append,reading)
+    event_loop.call_soon_threadsafe(buffer.append,reading)
 
 
 async def main():
@@ -89,7 +89,6 @@ if __name__ == "__main__":
                 writer = csv.writer(f)
                 writer.writerow(["timestamp", "x", "y", "z"])
 
-        sensor.register_callback(read_sensor)
         sensor.startup()
         sensor.get_data()
         asyncio.run(main())
