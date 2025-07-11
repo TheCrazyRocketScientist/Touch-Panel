@@ -66,12 +66,16 @@ class ADXL345{
       int8_t offset_y;
       int8_t offset_z;
 
+      uint8_t mode;
+      uint8_t bits;
+      uint32_t speed;
+
+      int bus;
       int pin;
-      int number;
+      int device_number;
       int count;
       int refresh;
       int attempts;
-      int spi_handle;
       int calibration_samples;
 
       std::vector<int16_t> x_calib;
@@ -89,9 +93,10 @@ class ADXL345{
       static py::function python_callback;
 
 
-      ADXL345(int number, int pin);
-      uint8_t read_register(uint8_t register_addr);
-      void write_to_register(uint8_t register_addr, uint8_t content);
+      ADXL345(int bus, int number, int pin);
+      int spi_transfer(uint8_t* tx, uint8_t* rx, size_t len);
+      uint8_t read_register(uint8_t reg);
+      void write_to_register(uint8_t reg, uint8_t value);
       void calibrate();
       void reset_offsets();
       void set_axis();

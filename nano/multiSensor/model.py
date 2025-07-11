@@ -187,6 +187,7 @@ if __name__ == "__main__":
 
     #get sequence length from shape of data
     sequence_length = data_version_one.shape[1]
+    print(sequence_length)
 
     #get test train split
     X_train,X_test,y_train,y_test = train_test_split(data,labels,test_size=0.20,random_state=42,shuffle=True,stratify=labels)
