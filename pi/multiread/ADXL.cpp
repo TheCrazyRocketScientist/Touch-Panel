@@ -1,8 +1,3 @@
-#include <fcntl.h>	
-#include <unistd.h>	
-#include <sys/ioctl.h>	
-#include <linux/spi/spidev.h>	
-#include <cstring>	
 #include <pigpio.h>
 #include <iostream>
 #include <vector>
@@ -24,32 +19,22 @@ using namespace std;
 ADXL345* global_instance = nullptr;
 
 
-   ADXL345::ADXL345(int bus, int number, int pin):bus(bus),pin(pin),number(number),attempts(ADXL_Helper::attempts)
+   ADXL345::ADXL345(int number, int pin):pin(pin),number(number),attempts(ADXL_Helper::attempts)
    
    {
-      //channel arg in spiOpen automatically allots a bus and cs pin. THIS IS FAKE, THIS DOES NOT USE ANY OTHER HARDWARE PINS EXCEPT CE0 FOR BUS 0/1!!!
+      //channel arg in spiOpen automatically allots a bus and cs pin
 
       global_instance = this;
-
-      std::string device = "/dev/spidev" + std::to_string(bus) + "." + std::to_string(number);
-      spi_fd = open(device.c_str(), O_RDWR); //set up spi file descriptor
-
-      if(spi_fd < 0){
-         std::cerr << "Failed to open SPI device." ; 
-      }
 
       if(gpioInitialise() < 0){
          std::cerr << "PIGPIO was not initialized\n" ; 
       }
 
-      //configure spi device
-      this->mode = SPI_MODE_3;
-      this->bits = 8;
-      this->speed = BUS_SPEED;
+      this->spi_handle = spiOpen(this->number,BUS_SPEED,0x03);
 
-      ioctl(spi_fd, SPI_IOC_WR_MODE, &this->mode);
-      ioctl(spi_fd, SPI_IOC_WR_BITS_PER_WORD, &this->bits);
-      ioctl(spi_fd, SPI_IOC_WR_MAX_SPEED_HZ, &this->speed);
+      if(this->spi_handle < 0){
+         std::cerr << "PIGPIO was not initialized\n" ; 
+      }
 
       //set up interrupt pin
       gpioSetMode(this->pin,PI_INPUT);
@@ -57,50 +42,46 @@ ADXL345* global_instance = nullptr;
 
    }
 
-   int ADXL345::spi_transfer(uint8_t* tx, uint8_t* rx, size_t len) {
-    struct spi_ioc_transfer tr = {
-        
-        .tx_buf = (unsigned long)tx,
-        .rx_buf = (unsigned long)rx,
-        .len = static_cast<__u32>(len),
-        .delay_usecs = 0,
-        .speed_hz = BUS_SPEED,
-        .bits_per_word = 8,
-    };
+   uint8_t ADXL345::read_register(uint8_t register_addr){
 
-    return ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
-   }
-
-   uint8_t ADXL345::read_register(uint8_t reg) {
-
-      this->write_buffer[0] = static_cast<uint8_t>(reg | 0x80);
+      this->write_buffer[0] = register_addr | 0x80;
       this->write_buffer[1] = 0x00;
 
-      if (spi_transfer(this->write_buffer,this->read_buffer, 2) != 2) {
+      this->count = spiXfer(this->spi_handle,(char*)this->write_buffer,(char*)this->read_buffer,2);
+
+      if(this->count != 2){
          throw std::runtime_error("SPI Read Failed.");
       }
       else{
          return this->read_buffer[1];
       }
+
    }
 
-   void ADXL345::write_to_register(uint8_t reg, uint8_t value) {
+   void ADXL345::write_to_register(uint8_t register_addr, uint8_t content){
 
       for(int i = 0; i < this->attempts; i++){
 
-         this->write_buffer[0] = reg;
-         this->write_buffer[1] = value;
+         this->write_buffer[0] = register_addr;
+         this->write_buffer[1] = content;
 
-         if(spi_transfer(this->write_buffer,this->read_buffer,2) != 2){
-            continue;
+         this->count = spiXfer(this->spi_handle,(char*)this->write_buffer,(char*)this->read_buffer,2);
+
+         if(this->count != 2){
+            throw std::runtime_error("SPI Write Failed.");
          }
          else{
-            return;
+
+            if(read_register(register_addr) == content){
+               return;
+            }
+
          }
       }
-
+      
       throw std::runtime_error("SPI Write Failed After Several Attempts.");
    }
+
 
    void ADXL345::calibrate(){
 
@@ -114,8 +95,7 @@ ADXL345* global_instance = nullptr;
       de latch the interrupt
       */
       this->source_content = read_register(ADXL_Registers::INT_SOURCE);
-      this->refresh = spi_transfer(in_buffer, out_buffer, 6);
-
+      this->refresh = spiXfer(this->spi_handle,(char*)in_buffer,(char*)out_buffer,6);
 
       gpioSetAlertFunc(this->pin, calibration_callback);
 
@@ -238,8 +218,7 @@ ADXL345* global_instance = nullptr;
       de latch the interrupt
       */
       this->source_content = read_register(ADXL_Registers::INT_SOURCE);
-      this->refresh = spi_transfer(in_buffer, out_buffer, 6);
-
+      this->refresh = spiXfer(this->spi_handle,(char*)in_buffer,(char*)out_buffer,6);
 
       gpioSetAlertFunc(this->pin, read_data);
 
@@ -247,7 +226,7 @@ ADXL345* global_instance = nullptr;
 
    void ADXL345::close(){
 
-      close(spi_fd);      
+      spiClose(this->spi_handle);
       gpioSetAlertFunc(this->pin, nullptr);
       gpioTerminate();
 
@@ -281,8 +260,7 @@ void calibration_callback(int gpio, int level, uint32_t tick){
             global_instance->in_buffer[0] = ADXL_Registers::DATAX0 | 0xC0;
             for(int i = 1; i < 7; i++) global_instance->in_buffer[i] = 0x00;
 
-            global_instance->refresh = global_instance->spi_transfer(global_instance->in_buffer,global_instance->out_buffer,7);
-
+            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,7);
             if(global_instance->refresh != 7){
                return;
             }
@@ -320,9 +298,7 @@ void read_data(int gpio, int level, uint32_t tick){
             for(int i = 1; i < 7; i++) global_instance->in_buffer[i] = 0x00;
 
 
-            global_instance->refresh = global_instance->spi_transfer(global_instance->in_buffer,global_instance->out_buffer,7);
-
-
+            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,7);
             if(global_instance->refresh != 7){
                return;
             }
