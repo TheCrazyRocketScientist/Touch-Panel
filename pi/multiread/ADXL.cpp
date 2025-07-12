@@ -46,8 +46,6 @@ ADXL345* global_instance = nullptr;
          std::cerr << "PIGPIO I2C was not initialized\n" ; 
       }
 
-      if(this)
-
       //set up interrupt pin
       gpioSetMode(this->pin,PI_INPUT);
       gpioSetPullUpDown(this->pin, PI_PUD_DOWN);
