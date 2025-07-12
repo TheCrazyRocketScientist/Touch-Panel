@@ -16,10 +16,13 @@
 namespace py = pybind11;
 using namespace std;
 
+py::function ADXL345::python_callback;
+
+
 ADXL345* global_instance = nullptr;
 
 
-   ADXL345::ADXL345(int number, int pin):pin(pin),number(number),attempts(ADXL_Helper::attempts)
+   ADXL345::ADXL345(int bus, bool address_select ,int pin):pin(pin),bus(bus),attempts(ADXL_Helper::attempts),address_select(address_select)
    
    {
       //channel arg in spiOpen automatically allots a bus and cs pin
@@ -30,11 +33,20 @@ ADXL345* global_instance = nullptr;
          std::cerr << "PIGPIO was not initialized\n" ; 
       }
 
-      this->spi_handle = spiOpen(this->number,BUS_SPEED,0x03);
-
-      if(this->spi_handle < 0){
-         std::cerr << "PIGPIO was not initialized\n" ; 
+      if(address_select == true){
+         this->address = ADXL345_ALT_ADDRESS;
       }
+      else{
+         this->address = ADXL345_DEFAULT_ADDRESS;
+      }
+
+      this->i2c_handle = i2cOpen(this->bus,this->address,0);
+
+      if(this->i2c_handle < 0){
+         std::cerr << "PIGPIO I2C was not initialized\n" ; 
+      }
+
+      if(this)
 
       //set up interrupt pin
       gpioSetMode(this->pin,PI_INPUT);
@@ -42,60 +54,41 @@ ADXL345* global_instance = nullptr;
 
    }
 
-   uint8_t ADXL345::read_register(uint8_t register_addr){
 
-      this->write_buffer[0] = register_addr | 0x80;
-      this->write_buffer[1] = 0x00;
+   uint8_t ADXL345::read_register(uint8_t register_addr) {
 
-      this->count = spiXfer(this->spi_handle,(char*)this->write_buffer,(char*)this->read_buffer,2);
+      this->reg_content = i2cReadByteData(this->i2c_handle, register_addr);
 
-      if(this->count != 2){
-         throw std::runtime_error("SPI Read Failed.");
-      }
-      else{
-         return this->read_buffer[1];
+      if (this->reg_content < 0){
+         throw std::runtime_error("I2C read failed");
       }
 
-   }
-
+    return this->reg_content;
+}
+   
    void ADXL345::write_to_register(uint8_t register_addr, uint8_t content){
 
-      for(int i = 0; i < this->attempts; i++){
+    for (int i = 0; i < this->attempts; ++i) {
+        if (i2cWriteByteData(this->i2c_handle, register_addr, content) < 0)
+            continue;
+        if (read_register(register_addr) == content)
+            return;
+    }
+    throw std::runtime_error("I2C write failed after several attempts.");
 
-         this->write_buffer[0] = register_addr;
-         this->write_buffer[1] = content;
-
-         this->count = spiXfer(this->spi_handle,(char*)this->write_buffer,(char*)this->read_buffer,2);
-
-         if(this->count != 2){
-            throw std::runtime_error("SPI Write Failed.");
-         }
-         else{
-
-            if(read_register(register_addr) == content){
-               return;
-            }
-
-         }
-      }
-      
-      throw std::runtime_error("SPI Write Failed After Several Attempts.");
-   }
+}
 
 
    void ADXL345::calibrate(){
 
       reset_offsets();
 
-      this->in_buffer[0] = ADXL_Registers::DATAX0 | 0xC0;
-      this->in_buffer[1] = 0x00;
-
       this->calibration_samples = static_cast<int>(0.1*ADXL_Helper::data_rate);
       /*
       de latch the interrupt
       */
       this->source_content = read_register(ADXL_Registers::INT_SOURCE);
-      this->refresh = spiXfer(this->spi_handle,(char*)in_buffer,(char*)out_buffer,6);
+      this->refresh = i2cReadI2CBlockData(this->i2c_handle, ADXL_Registers::DATAX0, (char*)out_buffer, 6);
 
       gpioSetAlertFunc(this->pin, calibration_callback);
 
@@ -209,16 +202,11 @@ ADXL345* global_instance = nullptr;
 
 
    void ADXL345::get_data(){
-
-      this->in_buffer[0] = ADXL_Registers::DATAX0 | 0xC0;
-      this->in_buffer[1] = 0x00;
-
-
       /*
       de latch the interrupt
       */
       this->source_content = read_register(ADXL_Registers::INT_SOURCE);
-      this->refresh = spiXfer(this->spi_handle,(char*)in_buffer,(char*)out_buffer,6);
+      this->refresh = i2cReadI2CBlockData(this->i2c_handle, this->address, (char*)out_buffer, 6);
 
       gpioSetAlertFunc(this->pin, read_data);
 
@@ -226,7 +214,7 @@ ADXL345* global_instance = nullptr;
 
    void ADXL345::close(){
 
-      spiClose(this->spi_handle);
+      i2cClose(this->i2c_handle);
       gpioSetAlertFunc(this->pin, nullptr);
       gpioTerminate();
 
@@ -256,18 +244,16 @@ void calibration_callback(int gpio, int level, uint32_t tick){
             if((global_instance->source_content & 0x80) == 0x00){
                return;
             }
-            
-            global_instance->in_buffer[0] = ADXL_Registers::DATAX0 | 0xC0;
-            for(int i = 1; i < 7; i++) global_instance->in_buffer[i] = 0x00;
 
-            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,7);
-            if(global_instance->refresh != 7){
+            global_instance->refresh = i2cReadI2CBlockData(global_instance->i2c_handle,ADXL_Registers::DATAX0,(char*)global_instance->out_buffer,6);
+
+            if(global_instance->refresh != 6){
                return;
             }
 
-            global_instance->raw_x = static_cast<int16_t> ((global_instance->out_buffer[2] << 8) | global_instance->out_buffer[1]);
-            global_instance->raw_y = static_cast<int16_t> ((global_instance->out_buffer[4] << 8) | global_instance->out_buffer[3]);
-            global_instance->raw_z = static_cast<int16_t> ((global_instance->out_buffer[6] << 8) | global_instance->out_buffer[5]);
+            global_instance->raw_x = static_cast<int16_t> ((global_instance->out_buffer[1] << 8) | global_instance->out_buffer[0]);
+            global_instance->raw_y = static_cast<int16_t> ((global_instance->out_buffer[3] << 8) | global_instance->out_buffer[2]);
+            global_instance->raw_z = static_cast<int16_t> ((global_instance->out_buffer[5] << 8) | global_instance->out_buffer[4]);
 
             global_instance->x_calib.push_back(global_instance->raw_x);
             global_instance->y_calib.push_back(global_instance->raw_y);
@@ -294,18 +280,15 @@ void read_data(int gpio, int level, uint32_t tick){
                return;
             }
 
-            global_instance->in_buffer[0] = ADXL_Registers::DATAX0 | 0xC0;
-            for(int i = 1; i < 7; i++) global_instance->in_buffer[i] = 0x00;
-
-
-            global_instance->refresh = spiXfer(global_instance->spi_handle,(char*)global_instance->in_buffer,(char*)global_instance->out_buffer,7);
-            if(global_instance->refresh != 7){
+            global_instance->refresh = i2cReadI2CBlockData(global_instance->i2c_handle,ADXL_Registers::DATAX0,(char*)global_instance->out_buffer,6);
+            
+            if(global_instance->refresh != 6){
                return;
             }
 
-            global_instance->raw_x = static_cast<int16_t> ((global_instance->out_buffer[2] << 8) | global_instance->out_buffer[1]);
-            global_instance->raw_y = static_cast<int16_t> ((global_instance->out_buffer[4] << 8) | global_instance->out_buffer[3]);
-            global_instance->raw_z = static_cast<int16_t> ((global_instance->out_buffer[6] << 8) | global_instance->out_buffer[5]);
+            global_instance->raw_x = static_cast<int16_t> ((global_instance->out_buffer[1] << 8) | global_instance->out_buffer[0]);
+            global_instance->raw_y = static_cast<int16_t> ((global_instance->out_buffer[3] << 8) | global_instance->out_buffer[2]);
+            global_instance->raw_z = static_cast<int16_t> ((global_instance->out_buffer[5] << 8) | global_instance->out_buffer[4]);
 
             global_instance->x = ((static_cast<float> (global_instance->raw_x))/256.0);
             global_instance->y = ((static_cast<float> (global_instance->raw_y))/256.0);

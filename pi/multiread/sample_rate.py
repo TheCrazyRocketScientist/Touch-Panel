@@ -13,25 +13,33 @@ from datetime import datetime
 from aiocsv import AsyncWriter
 from adxl import *
 
+# -------------------- ARGUMENT PARSING -------------------- #
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-n", "--sensor_num", type=int, help="Sets SPI Device Number", default=0)
+parser.add_argument("-b", "--bus", type=int, help="Sets up I2C Bus for ADXL", default=0)
+parser.add_argument("-a", "--addr_sel", type=lambda x: x.lower() == 'true', help="Sets I2C Device Address", required=True)
 parser.add_argument("-p", "--int_pin", type=int, help="Sets interrupt pin for ADXL", default=4)
-parser.add_argument("-b", "--batch_size", type=int, help="Sets batch size for writing data to disk", default=100)
+parser.add_argument("-s", "--batch_size", type=int, help="Sets batch size for writing data to disk", default=100)
 
 args = parser.parse_args()
 
-sensor_num = args.sensor_num
-batch_size = args.batch_size
+bus = args.bus
+addr_sel = args.addr_sel
 int_pin = args.int_pin
+batch_size = args.batch_size
 
-file_name = f"SENSOR{sensor_num}_data.csv"
+folder_name = "data"
+os.makedirs(folder_name,exist_ok=True)
 
+sensor_id = int(bus) + int(addr_sel)
+file_name = f"SENSOR{sensor_id}_data.csv"
+file_path = os.path.join(folder_name,file_name)
+
+
+# -------------------- GLOBAL STATE -------------------- #
 buffer = []
 reading = []
-val_buffer = []
 buffer_lock = asyncio.Lock()
-
 event_loop = None
 
 # Sample rate tracking
@@ -39,24 +47,25 @@ last_callback_time = None
 sample_intervals = deque(maxlen=100)
 sample_rate = 0.0
 
-sensor = ADXL345(sensor_num, int_pin)
+sensor = ADXL345(bus, addr_sel, int_pin)
 
+# -------------------- DATA LOGGING -------------------- #
 async def insert_data():
     global buffer
-
     while True:
         async with buffer_lock:
             if len(buffer) >= batch_size:
                 file_buffer = buffer
                 buffer = []
 
-                async with aiofiles.open(file_name, mode="a", newline="") as my_file:
+                async with aiofiles.open(file_path, mode="a", newline="") as my_file:
                     writer = AsyncWriter(my_file, dialect="excel")
                     await writer.writerows(file_buffer)
                     await my_file.flush()
 
         await asyncio.sleep(0.001)
 
+# -------------------- INTERRUPT CALLBACK -------------------- #
 def read_sensor():
     global reading, buffer, event_loop
     global last_callback_time, sample_intervals, sample_rate
@@ -77,36 +86,38 @@ def read_sensor():
     if event_loop:
         event_loop.call_soon_threadsafe(buffer.append, reading)
 
+# -------------------- SAMPLE RATE LOGGING -------------------- #
 async def log_sample_rate():
     while True:
         await asyncio.sleep(1.0)
-        print(f"[Sensor {sensor_num}] Sample rate: {sample_rate:.2f} Hz")
+        print(f"[Sensor {sensor_id}] Sample rate: {sample_rate:.2f} Hz")
 
+# -------------------- MAIN ASYNC TASK -------------------- #
 async def main():
-    tasks = [
-        insert_data(),
-        log_sample_rate()
-    ]
-    await asyncio.gather(*tasks)
+    await asyncio.gather(insert_data(), log_sample_rate())
 
+# -------------------- SCRIPT ENTRY -------------------- #
 if __name__ == "__main__":
     try:
         event_loop = asyncio.get_event_loop()
+        asyncio.set_event_loop(event_loop)
+
         sensor.register_callback(read_sensor)
 
-        if not os.path.exists(file_name) or os.stat(file_name).st_size == 0:
-            with open(file_name, mode="w", newline="") as f:
+        if not os.path.exists(file_path) or os.stat(file_path).st_size == 0:
+            with open(file_path, mode="w", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["timestamp", "x", "y", "z"])
 
         sensor.startup()
         sensor.get_data()
-        asyncio.run(main())
+
+        event_loop.run_until_complete(main())
 
     except KeyboardInterrupt:
         print("Interrupted, flushing buffer to disk...")
         if buffer:
-            with open(file_name, mode="a", newline="") as f:
+            with open(file_path, mode="a", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerows(buffer)
         sensor.close()

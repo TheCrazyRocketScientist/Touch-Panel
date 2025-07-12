@@ -6,7 +6,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(adxl, m) {
     py::class_<ADXL345>(m, "ADXL345")
-        .def(py::init<int, int>())
+        .def(py::init<int,bool,int>())
         .def("startup", &ADXL345::startup)
         .def("get_data", &ADXL345::get_data)
         .def("register_callback",&ADXL345::register_callback)
