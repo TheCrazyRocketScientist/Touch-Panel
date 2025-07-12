@@ -66,37 +66,30 @@ class ADXL345{
       int8_t offset_y;
       int8_t offset_z;
 
-      uint8_t address;
-
-
       int pin;
-      int bus;
+      int number;
       int count;
       int refresh;
       int attempts;
-      int i2c_handle;
+      int spi_handle;
       int calibration_samples;
-
-      bool address_select;
 
       std::vector<int16_t> x_calib;
       std::vector<int16_t> y_calib;
       std::vector<int16_t> z_calib;
 
       uint8_t source_content;
-      uint8_t reg_content;
 
 
-      //spi and i2c buffers
       uint8_t read_buffer[2];
       uint8_t write_buffer[2];
-      uint8_t in_buffer[6];
-      uint8_t out_buffer[6];
+      uint8_t in_buffer[7];
+      uint8_t out_buffer[7];
 
       static py::function python_callback;
 
 
-      ADXL345(int bus, bool address_select ,int pin);
+      ADXL345(int number, int pin);
       uint8_t read_register(uint8_t register_addr);
       void write_to_register(uint8_t register_addr, uint8_t content);
       void calibrate();
