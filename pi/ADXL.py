@@ -84,6 +84,7 @@ class ADXL345:
       self.x_vals = []
       self.y_vals = []
       self.z_vals = []
+      self.callback = None
 
       if address_select == False:
          self.address = ADXL_Helper.ADXL345_DEFAULT_ADDRESS
@@ -91,6 +92,9 @@ class ADXL345:
          self.address = ADXL_Helper.ADXL345_ALT_ADDRESS
 
       GPIO.setup(self.INT0,GPIO.IN,pull_up_down=GPIO.PUD_DOWN)
+
+   def register_callback(self,sent_callback):
+      self.callback = sent_callback
 
 
    def write_to_register(self,register_addr,content):
@@ -168,10 +172,13 @@ class ADXL345:
          data_bytes = bytes(data)
          x,y,z = struct.unpack('<hhh',data_bytes)
 
-         self.x_vals = x
-         self.y_vals = y
-         self.z_vals = z
-   
+         self.x_vals = x/256.0
+         self.y_vals = y/256.0
+         self.z_vals = z/256.0
+
+         self.callback([self.x_vals,self.y_vals,self.z_vals])
+
+
    def startup(self):
       """
       Startup function which manages initialization and calibration
